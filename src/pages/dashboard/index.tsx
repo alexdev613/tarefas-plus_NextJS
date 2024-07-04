@@ -1,7 +1,7 @@
 import { GetServerSideProps } from 'next';
 import styles from './styles.module.css';
 import Head from 'next/head';
-import { useState, ChangeEvent, FormEvent } from 'react';
+import { useState, ChangeEvent, FormEvent, useEffect } from 'react';
 
 import { getSession } from 'next-auth/react';
 import { Textarea } from '../../components/textarea';
@@ -10,7 +10,17 @@ import { FaTrash } from 'react-icons/fa';
 
 import { db } from '../../services/firebaseConnection';
 
-import { addDoc, collection } from 'firebase/firestore';
+import {
+  addDoc,
+  collection,
+  query,
+  orderBy,
+  where,
+  onSnapshot,
+  doc,
+  deleteDoc
+} from 'firebase/firestore';
+import Link from 'next/link';
 
 interface HomeProps {
   user : {
@@ -18,10 +28,54 @@ interface HomeProps {
   }
 }
 
+interface TaskProps {
+  id: string;
+  created: Date;
+  public: boolean;
+  tarefa: string;
+  user: string;
+}
+
 export default function Dashboard({ user }: HomeProps ) {
 
   const [input, setInput] = useState("");
   const [publicTask, setPublicTask] = useState(false);
+  const [tasks, setTasks] = useState<TaskProps[]>([])
+
+  useEffect(() => {
+    async function loadTarefas() {
+      const tarefasRef = collection(db, "tarefas");
+      // filtar por ordem decrescente de criação e onde o user é igual ao email do usuário logado no momento:
+      // Então vai mostrar apenas as tarefas que o usuário cadastrou"
+      const q = query(
+        tarefasRef,
+        orderBy("created", "desc"),
+        where("user", "==", user?.email)
+      )
+
+      onSnapshot(q, (snapshot) => {
+        // console.log(snapshot)
+
+        let lista = [] as TaskProps[];
+
+        snapshot.forEach((doc) => {
+          lista.push({
+            id: doc.id,
+            tarefa: doc.data().tarefa,
+            created: doc.data().created,
+            user: doc.data().user,
+            public: doc.data().public,
+          })
+        })
+
+        setTasks(lista);
+
+      })
+
+    }
+
+    loadTarefas();
+  }, [user?.email]);
 
   function handleChangePublic(event: ChangeEvent<HTMLInputElement>) {
     console.log(event.target.checked);
@@ -47,6 +101,20 @@ export default function Dashboard({ user }: HomeProps ) {
     } catch(err) {
       console.log(err);
     }
+  }
+
+  async function handleShare(id: string) {
+    console.log(id);
+    await navigator.clipboard.writeText(
+      `${process.env.NEXT_PUBLIC_URL}/task/${id}`
+    );
+
+    alert("URL copiada com sucesso!")
+  }
+
+  async function handleDeleteTask(id: string) {
+    const docRef = doc(db, "tarefas", id);
+    await deleteDoc(docRef);
   }
 
   return (
@@ -87,21 +155,33 @@ export default function Dashboard({ user }: HomeProps ) {
         <section className={styles.taskContainer}>
           <h1>Minhas tarefas</h1>
 
-          <article className={styles.task}>
-            <div className={styles.tagContainer}>
-              <label className={styles.tag}>PUBLICO</label>
-              <button className={styles.shareButton}>
-                <FiShare2 size={22} color='#3183ff'/>
-              </button>
-            </div>
+          {tasks.map((item) => (
+            <article key={item.id} className={styles.task}>
+              {item.public && (
+                <div className={styles.tagContainer}>
+                  <label className={styles.tag}>PUBLICO</label>
+                  <button className={styles.shareButton} onClick={ () => handleShare(item.id) }>
+                    <FiShare2 size={22} color='#3183ff'/>
+                  </button>
+                </div>
+              )}
 
-            <div className={styles.taskContent}>
-              <p>Minha primeira tarefa de exemplo show demais!</p>
-              <button className={styles.trashButton}>
-                <FaTrash size={24} color='#ea3140' />
-              </button>
-            </div>
-          </article>
+              <div className={styles.taskContent}>
+                
+                {item.public ? (
+                  <Link href={`/task/${item.id}`}>
+                    <p>{item.tarefa}</p>
+                  </Link>
+                ) : (
+                  <p>{item.tarefa}</p>
+                )}
+
+                <button className={styles.trashButton} onClick={ () => handleDeleteTask(item.id) }>
+                  <FaTrash size={24} color='#ea3140' />
+                </button>
+              </div>
+            </article>
+          ))}
 
         </section>
       </main>
